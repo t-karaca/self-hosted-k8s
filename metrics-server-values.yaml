@@ -1,0 +1,7 @@
+# allow metrics-server to be installed on control plane
+nodeSelector:
+  kubernetes.io/hostname: control-plane
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule

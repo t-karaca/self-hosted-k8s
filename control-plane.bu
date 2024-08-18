@@ -1,0 +1,129 @@
+variant: fcos
+version: 1.5.0
+passwd:
+  users:
+    - name: core
+      ssh_authorized_keys:
+        - redacted ssh key
+
+storage:
+  files:
+    # disable auto updates since this is only for testing
+    - path: /etc/zincati/config.d/90-disable-auto-updates.toml
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [updates]
+          enabled = false
+    - path: /etc/yum.repos.d/kubernetes.repo
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [kubernetes]
+          name=Kubernetes
+          baseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/
+          enabled=1
+          gpgcheck=1
+          gpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key
+    - path: /etc/modules-load.d/br_netfilter.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: br_netfilter
+    - path: /etc/sysctl.d/kubernetes.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          net.bridge.bridge-nf-call-iptables=1
+          net.ipv4.ip_forward=1
+    - path: /etc/profile.d/zz-aliases.sh
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          alias la="ls -lah"
+    - path: /etc/containerd/config.toml
+      mode: 0644
+      overwrite: true
+      contents:
+        local: containerd-config.toml
+    - path: /usr/local/bin/install-nerdctl.sh
+      mode: 0755
+      overwrite: true
+      contents:
+        local: install-nerdctl.sh
+    - path: /etc/bootstrap/clusterconfig.yaml
+      mode: 0644
+      overwrite: true
+      contents:
+        local: clusterconfig.yaml
+
+systemd:
+  units:
+    - name: docker.service
+      mask: true
+    - name: rpm-ostree-install-deps.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Layer deps with rpm-ostree
+        Wants=network-online.target
+        After=network-online.target
+        Before=zincati.service
+        ConditionPathExists=!/var/lib/%N.stamp
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/bash -c " \
+          rpm-ostree install --assumeyes --allow-inactive \
+            vim neovim kubeadm kubelet && \
+            echo 'Rebooting system...' && \
+            systemctl reboot"
+        ExecStart=/bin/touch /var/lib/%N.stamp
+
+        [Install]
+        WantedBy=multi-user.target
+    - name: bootstrap-cluster.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Bootstrap Kubernetes Cluster
+        Wants=network-online.target
+        After=network-online.target
+        ConditionPathExists=/var/lib/rpm-ostree-install-deps.stamp
+        ConditionPathExists=!/var/lib/%N.stamp
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/bash -c " \
+          systemctl enable --now kubelet && \
+          systemctl enable --now containerd && \
+          kubeadm init --config /etc/bootstrap/clusterconfig.yaml && \
+          mkdir -p /var/home/core/.kube && \
+          cp -i /etc/kubernetes/admin.conf /var/home/core/.kube/config && \
+          chown -R 1000:1000 /var/home/core"
+        ExecStartPost=/bin/touch /var/lib/%N.stamp
+
+        [Install]
+        WantedBy=multi-user.target
+    - name: install-nerdctl.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Install nerdctl
+        Wants=network-online.target
+        After=network-online.target
+        ConditionPathExists=!/usr/local/bin/nerdctl
+
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/local/bin/install-nerdctl.sh
+
+        [Install]
+        WantedBy=multi-user.target
