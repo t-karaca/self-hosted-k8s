@@ -40,7 +40,7 @@ if [ ! -f "images/$IMAGE_NAME" ]; then
         break
     done
 
-    if [ -z "$base_image_name" ]; then
+    if [ -z "$base_image_name" ] || [ "$base_image_name" = "fedora-coreos-*.qcow2" ]; then
         coreos-installer download --stream stable --architecture x86_64 --platform qemu --format qcow2.xz --decompress -C .
 
         for f in fedora-coreos-*.qcow2; do
@@ -48,7 +48,7 @@ if [ ! -f "images/$IMAGE_NAME" ]; then
             break
         done
 
-        if [ -z "$base_image_name" ]; then
+        if [ -z "$base_image_name" ] || [ "$base_image_name" = "fedora-coreos-*.qcow2" ]; then
             echo "Could not find base image at images/fedora-coreos-*.qcow2"
             exit 1
         fi
